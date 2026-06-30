@@ -53,7 +53,7 @@ public class AndroidShellEnvironment extends UnixShellEnvironment {
         environment.put(ENV_TMPDIR, "/data/local/tmp");
 
         environment.put(ENV_COLORTERM, "truecolor");
-        environment.put(ENV_TERM, "xterm-256color");
+        environment.put(ENV_TERM, "dumb");
 
         ShellEnvironmentUtils.putToEnvIfInSystemEnv(environment, "ANDROID_ASSETS");
         ShellEnvironmentUtils.putToEnvIfInSystemEnv(environment, "ANDROID_DATA");

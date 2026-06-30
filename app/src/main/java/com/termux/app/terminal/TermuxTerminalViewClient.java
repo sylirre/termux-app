@@ -88,7 +88,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
     public void onCreate() {
         onReloadProperties();
 
-        mActivity.getTerminalView().setTextSize(mActivity.getPreferences().getFontSize());
+        mActivity.getTerminalTextViewController().setTextSize(mActivity.getPreferences().getFontSize());
         mActivity.getTerminalView().setKeepScreenOn(mActivity.getPreferences().shouldKeepScreenOn());
     }
 
@@ -99,7 +99,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         // Set {@link TerminalView#TERMINAL_VIEW_KEY_LOGGING_ENABLED} value
         // Also required if user changed the preference from {@link TermuxSettings} activity and returns
         boolean isTerminalViewKeyLoggingEnabled = mActivity.getPreferences().isTerminalViewKeyLoggingEnabled();
-        mActivity.getTerminalView().setIsTerminalViewKeyLoggingEnabled(isTerminalViewKeyLoggingEnabled);
+        mActivity.getTerminalTextViewController().setIsTerminalViewKeyLoggingEnabled(isTerminalViewKeyLoggingEnabled);
 
         // Piggyback on the terminal view key logging toggle for now, should add a separate toggle in future
         mActivity.getTermuxActivityRootView().setIsRootViewLoggingEnabled(isTerminalViewKeyLoggingEnabled);
@@ -115,7 +115,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
         mTerminalCursorBlinkerStateAlreadySet = false;
 
-        if (mActivity.getTerminalView().mEmulator != null) {
+        if (mActivity.getTerminalTextViewController().getEmulator() != null) {
             // Start terminal cursor blinking if enabled
             // If emulator is already set, then start blinker now, otherwise wait for onEmulatorSet()
             // event to start it. This is needed since onEmulatorSet() may not be called after
@@ -187,7 +187,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
         TerminalEmulator term = mActivity.getCurrentSession().getEmulator();
 
         if (mActivity.getProperties().shouldOpenTerminalTranscriptURLOnClick()) {
-            int[] columnAndRow = mActivity.getTerminalView().getColumnAndRow(e, true);
+            int[] columnAndRow = mActivity.getTerminalTextViewController().getColumnAndRow(e);
             String wordAtTap = term.getScreen().getWordAtLocation(columnAndRow[0], columnAndRow[1]);
             LinkedHashSet<CharSequence> urlSet = TermuxUrlUtils.extractUrls(wordAtTap);
 
@@ -292,7 +292,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
     public boolean onKeyUp(int keyCode, KeyEvent e) {
         // If emulator is not set, like if bootstrap installation failed and user dismissed the error
         // dialog, then just exit the activity, otherwise they will be stuck in a broken state.
-        if (keyCode == KeyEvent.KEYCODE_BACK && mActivity.getTerminalView().mEmulator == null) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && mActivity.getTerminalTextViewController().getEmulator() == null) {
             mActivity.finishActivityIfNotFinishing();
             return true;
         }
@@ -518,7 +518,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
 
     public void changeFontSize(boolean increase) {
         mActivity.getPreferences().changeFontSize(increase);
-        mActivity.getTerminalView().setTextSize(mActivity.getPreferences().getFontSize());
+        mActivity.getTerminalTextViewController().setTextSize(mActivity.getPreferences().getFontSize());
     }
 
 
@@ -659,13 +659,13 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
     public void setTerminalCursorBlinkerState(boolean start) {
         if (start) {
             // If set/update the cursor blinking rate is successful, then enable cursor blinker
-            if (mActivity.getTerminalView().setTerminalCursorBlinkerRate(mActivity.getProperties().getTerminalCursorBlinkRate()))
-                mActivity.getTerminalView().setTerminalCursorBlinkerState(true, true);
+            if (mActivity.getTerminalTextViewController().setTerminalCursorBlinkerRate(mActivity.getProperties().getTerminalCursorBlinkRate()))
+                mActivity.getTerminalTextViewController().setTerminalCursorBlinkerState(true, true);
             else
                 Logger.logError(LOG_TAG,"Failed to start cursor blinker");
         } else {
             // Disable cursor blinker
-            mActivity.getTerminalView().setTerminalCursorBlinkerState(false, true);
+            mActivity.getTerminalTextViewController().setTerminalCursorBlinkerState(false, true);
         }
     }
 
@@ -685,7 +685,7 @@ public class TermuxTerminalViewClient extends TermuxTerminalViewClientBase {
     }
 
     public void shareSelectedText() {
-        String selectedText = mActivity.getTerminalView().getStoredSelectedText();
+        String selectedText = mActivity.getTerminalTextViewController().getSelectedText();
         if (DataUtils.isNullOrEmpty(selectedText)) return;
         ShareUtils.shareText(mActivity, mActivity.getString(R.string.title_share_selected_text),
             selectedText, mActivity.getString(R.string.title_share_selected_text_with));

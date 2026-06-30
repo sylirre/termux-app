@@ -76,7 +76,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
         // The current terminal session may have changed while being away, force
         // a refresh of the displayed terminal.
-        mActivity.getTerminalView().onScreenUpdated();
+        mActivity.getTerminalTextViewController().onScreenUpdated();
     }
 
     /**
@@ -118,7 +118,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     public void onTextChanged(@NonNull TerminalSession changedSession) {
         if (!mActivity.isVisible()) return;
 
-        if (mActivity.getCurrentSession() == changedSession) mActivity.getTerminalView().onScreenUpdated();
+        if (mActivity.getCurrentSession() == changedSession) mActivity.getTerminalTextViewController().onScreenUpdated();
     }
 
     @Override
@@ -192,8 +192,11 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
         if (!mActivity.isVisible()) return;
 
         String text = ShareUtils.getTextStringFromClipboardIfSet(mActivity, true);
-        if (text != null)
-            mActivity.getTerminalView().mEmulator.paste(text);
+        if (text != null) {
+            TerminalSession currentSession = mActivity.getCurrentSession();
+            if (currentSession != null && currentSession.getEmulator() != null)
+                currentSession.getEmulator().paste(text);
+        }
     }
 
     @Override
@@ -231,7 +234,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
 
         // If cursor is to enabled now, then start cursor blinking if blinking is enabled
         // otherwise stop cursor blinking
-        mActivity.getTerminalView().setTerminalCursorBlinkerState(enabled, false);
+        mActivity.getTerminalTextViewController().setTerminalCursorBlinkerState(enabled, false);
     }
 
     @Override
@@ -251,7 +254,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     public void onResetTerminalSession() {
         // Ensure blinker starts again after reset if cursor blinking was disabled before reset like
         // with "tput civis" which would have called onTerminalCursorStateChange()
-        mActivity.getTerminalView().setTerminalCursorBlinkerState(true, true);
+        mActivity.getTerminalTextViewController().setTerminalCursorBlinkerState(true, true);
     }
 
 
@@ -293,7 +296,7 @@ public class TermuxTerminalSessionActivityClient extends TermuxTerminalSessionCl
     public void setCurrentSession(TerminalSession session) {
         if (session == null) return;
 
-        if (mActivity.getTerminalView().attachSession(session)) {
+        if (mActivity.getTerminalTextViewController().attachSession(session)) {
             // notify about switched session if not already displaying the session
             notifyOfSessionChange();
         }

@@ -23,12 +23,17 @@
             android:layout_above="@+id/terminal_toolbar_view_pager"
             android:layout_height="match_parent">
 
-            <com.termux.view.TerminalView
+            <TextView
                 android:id="@+id/terminal_view"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:defaultFocusHighlightEnabled="false"
                 android:focusableInTouchMode="true"
+                android:fontFamily="monospace"
+                android:gravity="start|top"
+                android:includeFontPadding="false"
+                android:singleLine="false"
+                android:textColor="?android:attr/textColorPrimary"
                 android:scrollbarThumbVertical="@drawable/terminal_scroll_shape"
                 android:scrollbars="vertical"
                 tools:ignore="UnusedAttribute" />
