@@ -1,7 +1,15 @@
 package com.termux.app.terminal;
 
+import android.graphics.Color;
 import android.graphics.Paint;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.BackgroundColorSpan;
+import android.text.style.ForegroundColorSpan;
+import android.text.style.UnderlineSpan;
 import android.util.TypedValue;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -34,6 +42,10 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
     private int mCombiningAccent;
     private int mLastColumns;
     private int mLastRows;
+    private final Handler mCursorBlinkerHandler = new Handler(Looper.getMainLooper());
+    private Runnable mCursorBlinkerRunnable;
+    private int mTerminalCursorBlinkerRate;
+    private boolean mCursorVisible = true;
 
     private static boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
 
@@ -107,8 +119,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
             return;
         }
 
-        String text = mEmulator.getScreen().getTranscriptTextWithoutJoinedLines();
-        mTextView.setText(text);
+        mTextView.setText(getScreenTextWithCursor());
         mTextView.post(() -> {
             int scrollAmount = mTextView.getLayout() == null ? 0 :
                 mTextView.getLayout().getLineTop(mTextView.getLineCount()) - mTextView.getHeight();
@@ -269,9 +280,114 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
     }
 
     public boolean setTerminalCursorBlinkerRate(int blinkRate) {
-        return blinkRate == 0 || (blinkRate >= TERMINAL_CURSOR_BLINK_RATE_MIN && blinkRate <= TERMINAL_CURSOR_BLINK_RATE_MAX);
+        boolean valid = blinkRate == 0 || (blinkRate >= TERMINAL_CURSOR_BLINK_RATE_MIN && blinkRate <= TERMINAL_CURSOR_BLINK_RATE_MAX);
+        mTerminalCursorBlinkerRate = valid ? blinkRate : 0;
+        if (mTerminalCursorBlinkerRate == 0)
+            stopTerminalCursorBlinker();
+        return valid;
     }
 
     public void setTerminalCursorBlinkerState(boolean start, boolean startOnlyIfCursorEnabled) {
+        stopTerminalCursorBlinker();
+        if (mEmulator == null) return;
+
+        mEmulator.setCursorBlinkingEnabled(false);
+        mCursorVisible = true;
+        mEmulator.setCursorBlinkState(true);
+
+        if (startOnlyIfCursorEnabled && !mEmulator.isCursorEnabled()) {
+            onScreenUpdated();
+            return;
+        }
+
+        if (!start || mTerminalCursorBlinkerRate == 0) {
+            onScreenUpdated();
+            return;
+        }
+
+        mEmulator.setCursorBlinkingEnabled(true);
+        mCursorBlinkerRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mEmulator == null) return;
+                mCursorVisible = !mCursorVisible;
+                mEmulator.setCursorBlinkState(mCursorVisible);
+                onScreenUpdated();
+                mCursorBlinkerHandler.postDelayed(this, mTerminalCursorBlinkerRate);
+            }
+        };
+        onScreenUpdated();
+        mCursorBlinkerHandler.postDelayed(mCursorBlinkerRunnable, mTerminalCursorBlinkerRate);
+    }
+
+    private void stopTerminalCursorBlinker() {
+        if (mCursorBlinkerRunnable != null) {
+            mCursorBlinkerHandler.removeCallbacks(mCursorBlinkerRunnable);
+            mCursorBlinkerRunnable = null;
+        }
+    }
+
+    private CharSequence getScreenTextWithCursor() {
+        int activeTranscriptRows = mEmulator.getScreen().getActiveTranscriptRows();
+        int firstRow = -activeTranscriptRows;
+        int lastRow = mEmulator.mRows - 1;
+        int cursorRow = mEmulator.getCursorRow();
+        int cursorCol = mEmulator.getCursorCol();
+        int cursorStart = -1;
+
+        SpannableStringBuilder builder = new SpannableStringBuilder();
+        for (int row = firstRow; row <= lastRow; row++) {
+            String line = mEmulator.getScreen().getSelectedText(0, row, mEmulator.mColumns - 1, row, false);
+            if (row == cursorRow && shouldDrawCursor()) {
+                int lineStart = builder.length();
+                builder.append(line);
+                while (builder.length() - lineStart < cursorCol) {
+                    builder.append(' ');
+                }
+                cursorStart = Math.min(lineStart + cursorCol, builder.length());
+                if (cursorCol >= builder.length() - lineStart)
+                    builder.append(' ');
+            } else {
+                builder.append(line);
+            }
+
+            if (row < lastRow)
+                builder.append('\n');
+        }
+
+        if (cursorStart >= 0 && cursorStart < builder.length())
+            applyCursorSpan(builder, cursorStart);
+
+        return builder;
+    }
+
+    private boolean shouldDrawCursor() {
+        return mEmulator.shouldCursorBeVisible();
+    }
+
+    private void applyCursorSpan(SpannableStringBuilder builder, int cursorStart) {
+        int cursorEnd = Math.min(cursorStart + 1, builder.length());
+        switch (mEmulator.getCursorStyle()) {
+            case TerminalEmulator.TERMINAL_CURSOR_STYLE_UNDERLINE:
+                builder.setSpan(new UnderlineSpan(), cursorStart, cursorEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                break;
+            case TerminalEmulator.TERMINAL_CURSOR_STYLE_BAR:
+                builder.insert(cursorStart, "|");
+                builder.setSpan(new ForegroundColorSpan(mTextView.getCurrentTextColor()), cursorStart, cursorStart + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                break;
+            case TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK:
+            default:
+                builder.setSpan(new BackgroundColorSpan(mTextView.getCurrentTextColor()), cursorStart, cursorEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                builder.setSpan(new ForegroundColorSpan(getCursorForegroundColor()), cursorStart, cursorEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                break;
+        }
+    }
+
+    private int getCursorForegroundColor() {
+        int color = mTextView.getCurrentTextColor();
+        int red = 255 - Color.red(color);
+        int green = 255 - Color.green(color);
+        int blue = 255 - Color.blue(color);
+        return Color.rgb(red, green, blue);
     }
 }
