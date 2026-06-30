@@ -5,6 +5,8 @@ import android.graphics.Paint;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.Selection;
+import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.style.BackgroundColorSpan;
@@ -46,6 +48,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
     private Runnable mCursorBlinkerRunnable;
     private int mTerminalCursorBlinkerRate;
     private boolean mCursorVisible = true;
+    private boolean mPendingFollowOutput;
 
     private static boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
 
@@ -55,7 +58,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         mTextView = textView;
         mTextView.setTextIsSelectable(true);
         mTextView.setInputType(InputType.TYPE_NULL);
-        mTextView.setHorizontallyScrolling(false);
+        mTextView.setHorizontallyScrolling(true);
         mTextView.setSingleLine(false);
         mTextView.setOnKeyListener((view, keyCode, event) -> {
             if (event.getAction() == KeyEvent.ACTION_UP)
@@ -84,6 +87,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         mTermSession = session;
         mEmulator = null;
         mCombiningAccent = 0;
+        mPendingFollowOutput = false;
         updateSize();
         onScreenUpdated();
         return true;
@@ -115,16 +119,81 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
 
     public void onScreenUpdated() {
         if (mEmulator == null) {
+            mPendingFollowOutput = false;
             mTextView.setText("");
             return;
         }
 
-        mTextView.setText(getScreenTextWithCursor());
+        int oldScrollY = mTextView.getScrollY();
+        int selectionAnchor = getSelectionAnchorForScrollY(oldScrollY);
+        int selectionStart = mTextView.getSelectionStart();
+        int selectionEnd = mTextView.getSelectionEnd();
+        boolean hadSelection = isSelectionRange(selectionStart, selectionEnd);
+        boolean shouldFollowOutput = !hadSelection && !mEmulator.isAutoScrollDisabled() && (isScrolledToBottom() || mPendingFollowOutput);
+        mPendingFollowOutput = shouldFollowOutput;
+        CharSequence screenText = getScreenTextWithCursor();
+        mTextView.setText(screenText, TextView.BufferType.SPANNABLE);
+        if (hadSelection) {
+            setSelection(selectionStart, selectionEnd);
+        } else {
+            setCollapsedSelection(shouldFollowOutput ? getLastOutputOffset(screenText) : selectionAnchor);
+        }
         mTextView.post(() -> {
-            int scrollAmount = mTextView.getLayout() == null ? 0 :
-                mTextView.getLayout().getLineTop(mTextView.getLineCount()) - mTextView.getHeight();
-            mTextView.scrollTo(0, Math.max(scrollAmount, 0));
+            if (shouldFollowOutput) {
+                mTextView.scrollTo(0, getMaxScrollY());
+                mPendingFollowOutput = false;
+            } else {
+                mTextView.scrollTo(0, Math.min(oldScrollY, getMaxScrollY()));
+            }
         });
+        mEmulator.clearScrollCounter();
+    }
+
+    private int getSelectionAnchorForScrollY(int scrollY) {
+        if (mTextView.getLayout() == null) return 0;
+        int line = mTextView.getLayout().getLineForVertical(scrollY);
+        return mTextView.getLayout().getLineStart(line);
+    }
+
+    private void setCollapsedSelection(int position) {
+        setSelection(position, position);
+    }
+
+    private void setSelection(int start, int end) {
+        CharSequence text = mTextView.getText();
+        if (!(text instanceof Spannable)) return;
+        int selectionStart = Math.max(0, Math.min(start, text.length()));
+        int selectionEnd = Math.max(0, Math.min(end, text.length()));
+        Selection.setSelection((Spannable) text, selectionStart, selectionEnd);
+    }
+
+    private boolean isScrolledToBottom() {
+        return mTextView.getScrollY() >= getMaxScrollY() - 1;
+    }
+
+    private boolean isSelectionRange(int selectionStart, int selectionEnd) {
+        return selectionStart >= 0 && selectionEnd >= 0 && selectionStart != selectionEnd;
+    }
+
+    private int getMaxScrollY() {
+        if (mTextView.getLayout() == null) return 0;
+        int contentHeight = mTextView.getLayout().getLineBottom(getLastOutputLine());
+        int viewportHeight = mTextView.getHeight() - mTextView.getPaddingTop() - mTextView.getPaddingBottom();
+        return Math.max(contentHeight - viewportHeight, 0);
+    }
+
+    private int getLastOutputLine() {
+        CharSequence text = mTextView.getText();
+        if (text.length() == 0) return 0;
+        return mTextView.getLayout().getLineForOffset(getLastOutputOffset(text));
+    }
+
+    private int getLastOutputOffset(CharSequence text) {
+        int lastOutputOffset = text.length() - 1;
+        while (lastOutputOffset > 0 && text.charAt(lastOutputOffset) == '\n') {
+            lastOutputOffset--;
+        }
+        return Math.max(lastOutputOffset, 0);
     }
 
     @Nullable
@@ -255,6 +324,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
 
         boolean shiftDown = (keyMod & KeyHandler.KEYMOD_SHIFT) != 0;
         if (shiftDown && (keyCode == KeyEvent.KEYCODE_PAGE_UP || keyCode == KeyEvent.KEYCODE_PAGE_DOWN)) {
+            mPendingFollowOutput = false;
             mTextView.scrollBy(0, keyCode == KeyEvent.KEYCODE_PAGE_UP ? -mTextView.getHeight() : mTextView.getHeight());
             return true;
         }
