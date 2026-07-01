@@ -24,11 +24,11 @@ import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ListView;
 import android.widget.RelativeLayout;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import com.termux.R;
 import com.termux.app.api.file.FileReceiverActivity;
+import com.termux.app.terminal.TerminalEditText;
 import com.termux.app.terminal.TermuxActivityRootView;
 import com.termux.app.terminal.TermuxTerminalSessionActivityClient;
 import com.termux.app.terminal.io.TermuxTerminalExtraKeys;
@@ -87,9 +87,9 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
     TermuxService mTermuxService;
 
     /**
-     * The {@link TextView} shown in {@link TermuxActivity} that displays plain terminal text.
+     * The {@link TerminalEditText} shown in {@link TermuxActivity} that displays plain terminal text.
      */
-    TextView mTerminalView;
+    TerminalEditText mTerminalView;
 
     /**
      * Controller that attaches terminal sessions to {@link #mTerminalView}.
@@ -869,7 +869,7 @@ public final class TermuxActivity extends AppCompatActivity implements ServiceCo
         return mTermuxService;
     }
 
-    public TextView getTerminalView() {
+    public TerminalEditText getTerminalView() {
         return mTerminalView;
     }
 

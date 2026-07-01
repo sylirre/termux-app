@@ -23,15 +23,20 @@
             android:layout_above="@+id/terminal_toolbar_view_pager"
             android:layout_height="match_parent">
 
-            <TextView
+            <com.termux.app.terminal.TerminalEditText
                 android:id="@+id/terminal_view"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
+                android:background="@null"
+                android:cursorVisible="false"
                 android:defaultFocusHighlightEnabled="false"
                 android:focusableInTouchMode="true"
                 android:fontFamily="monospace"
                 android:gravity="start|top"
                 android:includeFontPadding="false"
+                android:importantForAutofill="no"
+                android:inputType="none"
+                android:saveEnabled="false"
                 android:singleLine="false"
                 android:textColor="?android:attr/textColorPrimary"
                 android:scrollbarThumbVertical="@drawable/terminal_scroll_shape"

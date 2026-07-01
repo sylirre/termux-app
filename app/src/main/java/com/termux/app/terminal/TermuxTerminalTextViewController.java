@@ -9,6 +9,7 @@ import android.text.Selection;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
+import android.text.method.KeyListener;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.UnderlineSpan;
@@ -26,7 +27,7 @@ import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalSession;
 import com.termux.shared.termux.terminal.io.TerminalExtraKeys;
 
-public class TermuxTerminalTextViewController implements TerminalExtraKeys.TerminalInput {
+public class TermuxTerminalTextViewController implements TerminalExtraKeys.TerminalInput, TerminalEditText.TerminalInputController {
 
     public static final int KEY_EVENT_SOURCE_VIRTUAL_KEYBOARD = KeyCharacterMap.VIRTUAL_KEYBOARD;
     public static final int KEY_EVENT_SOURCE_SOFT_KEYBOARD = 0;
@@ -36,7 +37,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
     private static final int MIN_COLUMNS = 2;
     private static final int MIN_ROWS = 2;
 
-    private final TextView mTextView;
+    private final TerminalEditText mTextView;
 
     private TermuxTerminalViewClient mClient;
     private TerminalSession mTermSession;
@@ -54,10 +55,12 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
 
     private static final String LOG_TAG = "TermuxTerminalTextViewController";
 
-    public TermuxTerminalTextViewController(@NonNull TextView textView) {
+    public TermuxTerminalTextViewController(@NonNull TerminalEditText textView) {
         mTextView = textView;
-        mTextView.setTextIsSelectable(true);
+        mTextView.setTerminalInputController(this);
         mTextView.setInputType(InputType.TYPE_NULL);
+        mTextView.setKeyListener((KeyListener) null);
+        mTextView.setTextIsSelectable(true);
         mTextView.setHorizontallyScrolling(true);
         mTextView.setSingleLine(false);
         mTextView.setOnKeyListener((view, keyCode, event) -> {
@@ -74,6 +77,80 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
 
     public void setIsTerminalViewKeyLoggingEnabled(boolean value) {
         TERMINAL_VIEW_KEY_LOGGING_ENABLED = value;
+    }
+
+    @Override
+    public boolean isTerminalViewSelected() {
+        return mClient == null || mClient.isTerminalViewSelected();
+    }
+
+    @Override
+    public boolean shouldEnforceCharBasedInput() {
+        return mClient != null && mClient.shouldEnforceCharBasedInput();
+    }
+
+    @Override
+    public void logTerminalInput(String message) {
+        if (TERMINAL_VIEW_KEY_LOGGING_ENABLED && mClient != null)
+            mClient.logInfo(LOG_TAG, message);
+    }
+
+    @Override
+    public boolean sendKeyEventFromInputConnection(KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_UP)
+            return mClient != null && mClient.onKeyUp(event.getKeyCode(), event);
+        return onKeyDown(event.getKeyCode(), event);
+    }
+
+    @Override
+    public void sendTextFromInputConnection(CharSequence text) {
+        if (text == null || text.length() == 0) return;
+
+        clearSelectionForTerminalInput();
+        final int textLengthInChars = text.length();
+        for (int i = 0; i < textLengthInChars; i++) {
+            char firstChar = text.charAt(i);
+            int codePoint;
+            if (Character.isHighSurrogate(firstChar)) {
+                if (++i < textLengthInChars) {
+                    codePoint = Character.toCodePoint(firstChar, text.charAt(i));
+                } else {
+                    codePoint = TerminalEmulator.UNICODE_REPLACEMENT_CHAR;
+                }
+            } else {
+                codePoint = firstChar;
+            }
+
+            if (mClient != null && mClient.readShiftKey())
+                codePoint = Character.toUpperCase(codePoint);
+
+            boolean ctrlHeld = false;
+            if (codePoint <= 31 && codePoint != 27) {
+                if (codePoint == '\n')
+                    codePoint = '\r';
+
+                ctrlHeld = true;
+                switch (codePoint) {
+                    case 31:
+                        codePoint = '_';
+                        break;
+                    case 30:
+                        codePoint = '^';
+                        break;
+                    case 29:
+                        codePoint = ']';
+                        break;
+                    case 28:
+                        codePoint = '\\';
+                        break;
+                    default:
+                        codePoint += 96;
+                        break;
+                }
+            }
+
+            inputCodePoint(KEY_EVENT_SOURCE_SOFT_KEYBOARD, codePoint, ctrlHeld, false);
+        }
     }
 
     public void setTextSize(int textSize) {
@@ -165,6 +242,12 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         int selectionStart = Math.max(0, Math.min(start, text.length()));
         int selectionEnd = Math.max(0, Math.min(end, text.length()));
         Selection.setSelection((Spannable) text, selectionStart, selectionEnd);
+    }
+
+    private void clearSelectionForTerminalInput() {
+        CharSequence text = mTextView.getText();
+        if (text == null) return;
+        setCollapsedSelection(getLastOutputOffset(text));
     }
 
     private boolean isScrolledToBottom() {
