@@ -4,12 +4,10 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.os.Handler;
 import android.os.Looper;
-import android.text.InputType;
 import android.text.Selection;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
-import android.text.method.KeyListener;
 import android.text.style.BackgroundColorSpan;
 import android.text.style.ForegroundColorSpan;
 import android.text.style.UnderlineSpan;
@@ -58,8 +56,8 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
     public TermuxTerminalTextViewController(@NonNull TerminalEditText textView) {
         mTextView = textView;
         mTextView.setTerminalInputController(this);
-        mTextView.setInputType(InputType.TYPE_NULL);
-        mTextView.setKeyListener((KeyListener) null);
+        mTextView.setRawInputType(TerminalEditText.TERMINAL_INPUT_TYPE);
+        mTextView.setTerminalKeyListener();
         mTextView.setTextIsSelectable(true);
         mTextView.setHorizontallyScrolling(true);
         mTextView.setSingleLine(false);

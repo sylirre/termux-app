@@ -1,10 +1,14 @@
 package com.termux.app.terminal;
 
 import android.content.Context;
+import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
+import android.text.method.KeyListener;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
+import android.view.View;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -13,6 +17,36 @@ import android.widget.EditText;
 import androidx.annotation.Nullable;
 
 public class TerminalEditText extends EditText {
+
+    public static final int TERMINAL_INPUT_TYPE = InputType.TYPE_CLASS_TEXT |
+        InputType.TYPE_TEXT_FLAG_MULTI_LINE |
+        InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+
+    private static final KeyListener TERMINAL_KEY_LISTENER = new KeyListener() {
+        @Override
+        public int getInputType() {
+            return TERMINAL_INPUT_TYPE;
+        }
+
+        @Override
+        public boolean onKeyDown(View view, Editable text, int keyCode, KeyEvent event) {
+            return !event.isSystem();
+        }
+
+        @Override
+        public boolean onKeyUp(View view, Editable text, int keyCode, KeyEvent event) {
+            return !event.isSystem();
+        }
+
+        @Override
+        public boolean onKeyOther(View view, Editable text, KeyEvent event) {
+            return true;
+        }
+
+        @Override
+        public void clearMetaKeyState(View view, Editable content, int states) {
+        }
+    };
 
     private TerminalInputController mTerminalInputController;
 
@@ -32,9 +66,37 @@ public class TerminalEditText extends EditText {
         mTerminalInputController = terminalInputController;
     }
 
+    public void setTerminalKeyListener() {
+        setKeyListener(TERMINAL_KEY_LISTENER);
+    }
+
     @Override
     public boolean onCheckIsTextEditor() {
         return true;
+    }
+
+    @Override
+    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        info.setClassName(EditText.class.getName());
+        info.setEditable(true);
+        info.setMultiLine(true);
+        info.setPassword(false);
+        info.setInputType(TERMINAL_INPUT_TYPE);
+        info.addAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_TEXT);
+    }
+
+    @Override
+    public boolean performAccessibilityAction(int action, Bundle arguments) {
+        if (action == AccessibilityNodeInfo.ACTION_SET_TEXT && mTerminalInputController != null) {
+            CharSequence text = arguments == null ? null :
+                arguments.getCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE);
+            if (text != null)
+                mTerminalInputController.sendTextFromInputConnection(text);
+            return true;
+        }
+
+        return super.performAccessibilityAction(action, arguments);
     }
 
     @Override
