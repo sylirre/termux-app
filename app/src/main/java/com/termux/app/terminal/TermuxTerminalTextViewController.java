@@ -4,6 +4,7 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
 import android.text.Selection;
 import android.text.Spannable;
 import android.text.SpannableStringBuilder;
@@ -195,7 +196,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
     public void onScreenUpdated() {
         if (mEmulator == null) {
             mPendingFollowOutput = false;
-            replaceTerminalText("");
+            updateTerminalText("");
             return;
         }
 
@@ -206,7 +207,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         boolean shouldFollowOutput = !hadSelection && !mEmulator.isAutoScrollDisabled() && (isScrolledToBottom() || mPendingFollowOutput);
         mPendingFollowOutput = shouldFollowOutput;
         ScreenText screenText = getScreenTextWithCursor();
-        replaceTerminalText(screenText.text, hadSelection, selectionStart, selectionEnd,
+        updateTerminalText(screenText, hadSelection, selectionStart, selectionEnd,
             screenText.cursorOffset);
         mTextView.post(() -> {
             if (shouldFollowOutput) {
@@ -219,18 +220,20 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         mEmulator.clearScrollCounter();
     }
 
-    private void replaceTerminalText(CharSequence screenText) {
-        replaceTerminalText(screenText, false, 0, 0, 0);
+    private void updateTerminalText(CharSequence screenText) {
+        updateTerminalText(new ScreenText(screenText, 0), false, 0, 0, 0);
     }
 
-    private void replaceTerminalText(CharSequence screenText, boolean restoreSelectionRange,
-                                     int selectionStart, int selectionEnd, int collapsedSelection) {
+    private void updateTerminalText(ScreenText screenText, boolean restoreSelectionRange,
+                                    int selectionStart, int selectionEnd, int collapsedSelection) {
         mTextView.setSuppressTerminalScreenUpdateAccessibilityEvents(true);
         try {
-            mTextView.setText(screenText, TextView.BufferType.SPANNABLE);
+            updateEditableText(screenText.text);
         } finally {
             mTextView.setSuppressTerminalScreenUpdateAccessibilityEvents(false);
         }
+
+        refreshCursorSpans(screenText.cursorOffset);
 
         try {
             if (restoreSelectionRange) {
@@ -242,6 +245,63 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         } finally {
             mTextView.setSuppressTerminalScreenUpdateAccessibilityEvents(false);
         }
+    }
+
+    private void updateEditableText(CharSequence newText) {
+        Editable editable = mTextView.getText();
+        if (editable == null) {
+            mTextView.setText(newText, TextView.BufferType.SPANNABLE);
+            return;
+        }
+
+        String oldText = editable.toString();
+        String newTextString = newText.toString();
+        if (oldText.equals(newTextString)) return;
+
+        int commonPrefix = getCommonPrefixLength(oldText, newTextString);
+        int commonSuffix = getCommonSuffixLength(oldText, newTextString, commonPrefix);
+        int oldReplaceEnd = oldText.length() - commonSuffix;
+        int newReplaceEnd = newTextString.length() - commonSuffix;
+        editable.replace(commonPrefix, oldReplaceEnd, newText.subSequence(commonPrefix, newReplaceEnd));
+    }
+
+    private int getCommonPrefixLength(String oldText, String newText) {
+        int maxPrefix = Math.min(oldText.length(), newText.length());
+        int prefix = 0;
+        while (prefix < maxPrefix && oldText.charAt(prefix) == newText.charAt(prefix))
+            prefix++;
+        return prefix;
+    }
+
+    private int getCommonSuffixLength(String oldText, String newText, int commonPrefix) {
+        int oldIndex = oldText.length() - 1;
+        int newIndex = newText.length() - 1;
+        int suffix = 0;
+        while (oldIndex >= commonPrefix && newIndex >= commonPrefix &&
+            oldText.charAt(oldIndex) == newText.charAt(newIndex)) {
+            oldIndex--;
+            newIndex--;
+            suffix++;
+        }
+        return suffix;
+    }
+
+    private void refreshCursorSpans(int cursorOffset) {
+        Editable editable = mTextView.getText();
+        if (editable == null) return;
+
+        clearCursorSpans(editable);
+        if (mEmulator != null && shouldDrawCursor() && editable.length() > 0)
+            applyCursorSpan(editable, Math.max(0, Math.min(cursorOffset, editable.length())));
+    }
+
+    private void clearCursorSpans(Spannable text) {
+        for (UnderlineSpan span : text.getSpans(0, text.length(), UnderlineSpan.class))
+            text.removeSpan(span);
+        for (BackgroundColorSpan span : text.getSpans(0, text.length(), BackgroundColorSpan.class))
+            text.removeSpan(span);
+        for (ForegroundColorSpan span : text.getSpans(0, text.length(), ForegroundColorSpan.class))
+            text.removeSpan(span);
     }
 
     private void setCollapsedSelection(int position) {
@@ -510,7 +570,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
                     builder.append(' ');
                 }
                 cursorStart = Math.min(lineStart + cursorCol, builder.length());
-                if (shouldDrawCursor() && cursorCol >= builder.length() - lineStart)
+                if (cursorCol >= builder.length() - lineStart)
                     builder.append(' ');
             } else {
                 builder.append(line);
@@ -519,9 +579,6 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
             if (row < lastRow)
                 builder.append('\n');
         }
-
-        if (cursorStart >= 0 && cursorStart < builder.length())
-            applyCursorSpan(builder, cursorStart);
 
         return new ScreenText(builder, cursorStart >= 0 ? cursorStart : getLastOutputOffset(builder));
     }
@@ -540,15 +597,16 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         return mEmulator.shouldCursorBeVisible();
     }
 
-    private void applyCursorSpan(SpannableStringBuilder builder, int cursorStart) {
+    private void applyCursorSpan(Spannable builder, int cursorStart) {
+        if (cursorStart < 0 || cursorStart >= builder.length()) return;
+
         int cursorEnd = Math.min(cursorStart + 1, builder.length());
         switch (mEmulator.getCursorStyle()) {
             case TerminalEmulator.TERMINAL_CURSOR_STYLE_UNDERLINE:
                 builder.setSpan(new UnderlineSpan(), cursorStart, cursorEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 break;
             case TerminalEmulator.TERMINAL_CURSOR_STYLE_BAR:
-                builder.insert(cursorStart, "|");
-                builder.setSpan(new ForegroundColorSpan(mTextView.getCurrentTextColor()), cursorStart, cursorStart + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                builder.setSpan(new UnderlineSpan(), cursorStart, cursorEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 break;
             case TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK:
             default:
