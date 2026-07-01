@@ -195,24 +195,19 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
     public void onScreenUpdated() {
         if (mEmulator == null) {
             mPendingFollowOutput = false;
-            mTextView.setText("");
+            replaceTerminalText("");
             return;
         }
 
         int oldScrollY = mTextView.getScrollY();
-        int selectionAnchor = getSelectionAnchorForScrollY(oldScrollY);
         int selectionStart = mTextView.getSelectionStart();
         int selectionEnd = mTextView.getSelectionEnd();
         boolean hadSelection = isSelectionRange(selectionStart, selectionEnd);
         boolean shouldFollowOutput = !hadSelection && !mEmulator.isAutoScrollDisabled() && (isScrolledToBottom() || mPendingFollowOutput);
         mPendingFollowOutput = shouldFollowOutput;
-        CharSequence screenText = getScreenTextWithCursor();
-        mTextView.setText(screenText, TextView.BufferType.SPANNABLE);
-        if (hadSelection) {
-            setSelection(selectionStart, selectionEnd);
-        } else {
-            setCollapsedSelection(shouldFollowOutput ? getLastOutputOffset(screenText) : selectionAnchor);
-        }
+        ScreenText screenText = getScreenTextWithCursor();
+        replaceTerminalText(screenText.text, hadSelection, selectionStart, selectionEnd,
+            screenText.cursorOffset);
         mTextView.post(() -> {
             if (shouldFollowOutput) {
                 mTextView.scrollTo(0, getMaxScrollY());
@@ -224,10 +219,29 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         mEmulator.clearScrollCounter();
     }
 
-    private int getSelectionAnchorForScrollY(int scrollY) {
-        if (mTextView.getLayout() == null) return 0;
-        int line = mTextView.getLayout().getLineForVertical(scrollY);
-        return mTextView.getLayout().getLineStart(line);
+    private void replaceTerminalText(CharSequence screenText) {
+        replaceTerminalText(screenText, false, 0, 0, 0);
+    }
+
+    private void replaceTerminalText(CharSequence screenText, boolean restoreSelectionRange,
+                                     int selectionStart, int selectionEnd, int collapsedSelection) {
+        mTextView.setSuppressTerminalScreenUpdateAccessibilityEvents(true);
+        try {
+            mTextView.setText(screenText, TextView.BufferType.SPANNABLE);
+        } finally {
+            mTextView.setSuppressTerminalScreenUpdateAccessibilityEvents(false);
+        }
+
+        try {
+            if (restoreSelectionRange) {
+                mTextView.setSuppressTerminalScreenUpdateAccessibilityEvents(true);
+                setSelection(selectionStart, selectionEnd);
+            } else {
+                setCollapsedSelection(collapsedSelection);
+            }
+        } finally {
+            mTextView.setSuppressTerminalScreenUpdateAccessibilityEvents(false);
+        }
     }
 
     private void setCollapsedSelection(int position) {
@@ -478,7 +492,7 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         }
     }
 
-    private CharSequence getScreenTextWithCursor() {
+    private ScreenText getScreenTextWithCursor() {
         int activeTranscriptRows = mEmulator.getScreen().getActiveTranscriptRows();
         int firstRow = -activeTranscriptRows;
         int lastRow = mEmulator.mRows - 1;
@@ -489,14 +503,14 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         SpannableStringBuilder builder = new SpannableStringBuilder();
         for (int row = firstRow; row <= lastRow; row++) {
             String line = mEmulator.getScreen().getSelectedText(0, row, mEmulator.mColumns - 1, row, false);
-            if (row == cursorRow && shouldDrawCursor()) {
+            if (row == cursorRow) {
                 int lineStart = builder.length();
                 builder.append(line);
                 while (builder.length() - lineStart < cursorCol) {
                     builder.append(' ');
                 }
                 cursorStart = Math.min(lineStart + cursorCol, builder.length());
-                if (cursorCol >= builder.length() - lineStart)
+                if (shouldDrawCursor() && cursorCol >= builder.length() - lineStart)
                     builder.append(' ');
             } else {
                 builder.append(line);
@@ -509,7 +523,17 @@ public class TermuxTerminalTextViewController implements TerminalExtraKeys.Termi
         if (cursorStart >= 0 && cursorStart < builder.length())
             applyCursorSpan(builder, cursorStart);
 
-        return builder;
+        return new ScreenText(builder, cursorStart >= 0 ? cursorStart : getLastOutputOffset(builder));
+    }
+
+    private static class ScreenText {
+        final CharSequence text;
+        final int cursorOffset;
+
+        ScreenText(CharSequence text, int cursorOffset) {
+            this.text = text;
+            this.cursorOffset = cursorOffset;
+        }
     }
 
     private boolean shouldDrawCursor() {

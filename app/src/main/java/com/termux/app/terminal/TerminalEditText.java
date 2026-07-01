@@ -8,6 +8,7 @@ import android.text.method.KeyListener;
 import android.util.AttributeSet;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
@@ -49,6 +50,7 @@ public class TerminalEditText extends EditText {
     };
 
     private TerminalInputController mTerminalInputController;
+    private boolean mSuppressTerminalScreenUpdateAccessibilityEvents;
 
     public TerminalEditText(Context context) {
         super(context);
@@ -68,6 +70,10 @@ public class TerminalEditText extends EditText {
 
     public void setTerminalKeyListener() {
         setKeyListener(TERMINAL_KEY_LISTENER);
+    }
+
+    public void setSuppressTerminalScreenUpdateAccessibilityEvents(boolean suppress) {
+        mSuppressTerminalScreenUpdateAccessibilityEvents = suppress;
     }
 
     @Override
@@ -97,6 +103,28 @@ public class TerminalEditText extends EditText {
         }
 
         return super.performAccessibilityAction(action, arguments);
+    }
+
+    @Override
+    public void sendAccessibilityEventUnchecked(AccessibilityEvent event) {
+        if (shouldSuppressTerminalScreenUpdateAccessibilityEvent(event))
+            return;
+
+        super.sendAccessibilityEventUnchecked(event);
+    }
+
+    private boolean shouldSuppressTerminalScreenUpdateAccessibilityEvent(AccessibilityEvent event) {
+        if (!mSuppressTerminalScreenUpdateAccessibilityEvents || event == null)
+            return false;
+
+        int eventType = event.getEventType();
+        if (eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
+            eventType == AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED) {
+            return true;
+        }
+
+        return eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED &&
+            (event.getContentChangeTypes() & AccessibilityEvent.CONTENT_CHANGE_TYPE_TEXT) != 0;
     }
 
     @Override
